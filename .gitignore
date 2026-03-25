@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+node_modules/
+dist/
+
+.venv/
+venv/
+
+downloads/
+
+.DS_Store
+Thumbs.db

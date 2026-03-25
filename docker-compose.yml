@@ -1,0 +1,41 @@
+version: "3.9"
+
+services:
+
+  # ── Flask 後端 ─────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: backend.Dockerfile
+    container_name: sec_backend
+    restart: unless-stopped
+    environment:
+      # ⚠️ 修改這裡：你的真實姓名和 Email（SEC EDGAR 要求）
+      SEC_USER_AGENT: "YourName yourname@email.com"
+      DOWNLOAD_DIR: /app/downloads
+    volumes:
+      # ⭐ 修改左邊的路徑，改成你電腦上想存放財報的資料夾
+      # Windows 範例：./downloads:/app/downloads
+      # Mac    範例：./downloads:/app/downloads
+      # 絕對路徑：/Users/yourname/sec_reports:/app/downloads
+      - ./downloads:/app/downloads
+    networks:
+      - sec_net
+
+  # ── React 前端（Nginx） ────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend.Dockerfile
+    container_name: sec_frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"    # 瀏覽器開 http://localhost:8080
+    depends_on:
+      - backend
+    networks:
+      - sec_net
+
+networks:
+  sec_net:
+    driver: bridge
