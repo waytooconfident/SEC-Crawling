@@ -10,3 +10,5 @@ python-dotenv==1.0.1
 gunicorn==22.0.0
 eventlet==0.36.1
 requests==2.32.3
+playwright==1.45.0
+asyncio-mqtt==0.16.1

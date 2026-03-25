@@ -3,14 +3,22 @@
 - 執行實際下載
 - 透過 WebSocket 推送進度給前端
 - 處理壓縮、衝突策略
+- 將 HTML 財報轉換為 PDF
 """
 import os
 import subprocess
 import time
 import zipfile
 import shutil
+import asyncio
+import logging
 from pathlib import Path
 from sec_edgar_downloader import Downloader
+from pdf_service import render_filing_html_to_pdf
+
+# 設定日誌
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "/app/downloads")
 
@@ -25,21 +33,32 @@ def run_download_job(job_id: str, config: dict, emit_progress):
         compress     : bool
         on_conflict  : "overwrite" | "skip"
     """
-    companies    = config["companies"]
-    filing_types = config["filing_types"]
-    date_from    = config.get("date_from", "")
-    date_to      = config.get("date_to", "")
-    compress     = config.get("compress", False)
-    on_conflict  = config.get("on_conflict", "skip")
-    download_dir = config.get("download_path") or DOWNLOAD_DIR
+    try:
+        companies    = config["companies"]
+        filing_types = config["filing_types"]
+        date_from    = config.get("date_from", "")
+        date_to      = config.get("date_to", "")
+        compress     = config.get("compress", False)
+        on_conflict  = config.get("on_conflict", "skip")
+        download_dir = config.get("download_path") or DOWNLOAD_DIR
 
-    os.makedirs(download_dir, exist_ok=True)
+        # 驗證輸入參數
+        if not companies or not filing_types:
+            raise ValueError("Companies and filing types are required")
 
-    total = len(companies) * len(filing_types)
-    done  = 0
+        if not download_dir:
+            raise ValueError("Download directory is required")
 
-    sec_user_agent = os.environ.get("SEC_USER_AGENT", "YourName yourname@email.com").strip()
-    company_name, email_address = _parse_sec_user_agent(sec_user_agent)
+        os.makedirs(download_dir, exist_ok=True)
+
+        total = len(companies) * len(filing_types)
+        done  = 0
+
+        sec_user_agent = os.environ.get("SEC_USER_AGENT", "YourName yourname@email.com").strip()
+        if not sec_user_agent or sec_user_agent == "YourName yourname@email.com":
+            raise ValueError("SEC_USER_AGENT environment variable must be set with real name and email")
+
+        company_name, email_address = _parse_sec_user_agent(sec_user_agent)
 
     dl = Downloader(
         company_name=company_name,
@@ -87,7 +106,7 @@ def run_download_job(job_id: str, config: dict, emit_progress):
                 dl.get(form_type, ticker, download_details=True, **kwargs)
 
                 # 將下載後的 HTML 轉為 PDF（客戶要的可列印版）
-                rendered = _render_filing_html_to_pdf(target_dir)
+                rendered = asyncio.run(render_filing_html_to_pdf(target_dir))
                 if rendered > 0:
                     emit_progress(job_id, {
                         "status": "rendered",
@@ -111,6 +130,7 @@ def run_download_job(job_id: str, config: dict, emit_progress):
                 time.sleep(0.5)  # SEC rate limit 保護
 
             except Exception as e:
+                logger.error(f"Error processing {ticker} {form_type}: {str(e)}")
                 done += 1
                 emit_progress(job_id, {
                     "status":  "error",
@@ -119,12 +139,21 @@ def run_download_job(job_id: str, config: dict, emit_progress):
                     "total":   total,
                 })
 
-    emit_progress(job_id, {
-        "status":  "finished",
-        "message": f"All done. {done}/{total} processed.",
-        "done":    done,
-        "total":   total,
-    })
+        emit_progress(job_id, {
+            "status":  "finished",
+            "message": f"All done. {done}/{total} processed.",
+            "done":    done,
+            "total":   total,
+        })
+
+    except Exception as e:
+        logger.error(f"Critical error in download job {job_id}: {str(e)}")
+        emit_progress(job_id, {
+            "status":  "error",
+            "message": f"Critical error: {str(e)}",
+            "done":    0,
+            "total":   1,
+        })
 
 
 # ── helpers ─────────────────────────────────────────────
@@ -152,44 +181,6 @@ def _parse_sec_user_agent(user_agent: str):
         company = " ".join(parts[:-1]) or "SEC Downloader"
         return company, email
     return user_agent or "SEC Downloader", email
-
-
-def _render_filing_html_to_pdf(target_dir: str) -> int:
-    """Render downloaded filing HTML files to PDF beside each source file."""
-    root = Path(target_dir)
-    if not root.exists():
-        return 0
-
-    rendered = 0
-    html_files = sorted(
-        [
-            *root.rglob("*.htm"),
-            *root.rglob("*.html"),
-        ]
-    )
-
-    # Skip SEC helper indexes and inline viewer files to reduce noisy outputs.
-    ignored_names = {"index.html", "index.htm", "ixviewer.html"}
-    for html_path in html_files:
-        if html_path.name.lower() in ignored_names:
-            continue
-
-        pdf_path = html_path.with_suffix(".pdf")
-        if _html_file_to_pdf(html_path, pdf_path):
-            rendered += 1
-
-    return rendered
-
-
-def _html_file_to_pdf(html_path: Path, pdf_path: Path) -> bool:
-    try:
-        browser = _find_chromium_binary()
-        if not browser:
-            return False
-
-        cmd = [
-            browser,
-            "--headless",
             "--no-sandbox",
             "--disable-gpu",
             "--run-all-compositor-stages-before-draw",

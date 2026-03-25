@@ -2,6 +2,7 @@ from flask import Flask, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO
 import os
+import atexit
 
 app = Flask(__name__, static_folder="dist", static_url_path="/")
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -19,6 +20,10 @@ app.register_blueprint(excel_bp,    url_prefix="/api/excel")
 app.register_blueprint(company_bp,  url_prefix="/api/company")
 app.register_blueprint(filing_bp,   url_prefix="/api/filing")
 app.register_blueprint(download_bp, url_prefix="/api/download")
+
+# ── 應用程式關閉時清理 PDF 渲染器 ──────────────────────
+from pdf_service import cleanup_renderer
+atexit.register(cleanup_renderer)
 
 # ── Serve React (production) ─────────────────────────────
 @app.route("/", defaults={"path": ""})
