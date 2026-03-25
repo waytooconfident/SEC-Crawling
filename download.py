@@ -21,7 +21,7 @@ def check_conflicts():
     for company in companies:
         ticker = company.get("ticker") or company.get("cik")
         for form_type in filing_types:
-            target_dir = os.path.join(download_dir, ticker, form_type)
+            target_dir = os.path.join(download_dir, "sec-edgar-filings", ticker, form_type)
             zip_path = f"{target_dir}.zip"
 
             if os.path.exists(target_dir):

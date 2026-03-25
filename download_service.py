@@ -60,7 +60,7 @@ def run_download_job(job_id: str, config: dict, emit_progress):
 
             try:
                 # ── 衝突偵測 ────────────────────────────────
-                target_dir = os.path.join(download_dir, ticker, form_type)
+                target_dir = _filing_root_dir(download_dir, ticker, form_type)
                 zip_path = target_dir + ".zip"
 
                 conflict_exists = os.path.exists(target_dir) or (compress and os.path.exists(zip_path))
@@ -136,6 +136,11 @@ def _zip_folder(folder_path: str, output_path: str):
                 abs_path = os.path.join(root, file)
                 arcname  = os.path.relpath(abs_path, folder_path)
                 zf.write(abs_path, arcname)
+
+
+def _filing_root_dir(download_dir: str, ticker: str, form_type: str) -> str:
+    # sec-edgar-downloader writes under: <download_dir>/sec-edgar-filings/<ticker>/<form_type>/...
+    return os.path.join(download_dir, "sec-edgar-filings", ticker, form_type)
 
 
 def _parse_sec_user_agent(user_agent: str):
